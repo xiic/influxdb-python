@@ -364,8 +364,6 @@ localhost:8086/databasename', timeout=5, udp_port=159)
             one database to another or when doing a massive write operation,
             defaults to None
         :type batch_size: int
-        :returns: True, if the operation is successful
-        :rtype: bool
 
         .. note:: if no retention policy is specified, the default retention
             policy for the database is used
@@ -378,13 +376,13 @@ localhost:8086/databasename', timeout=5, udp_port=159)
                                    database=database,
                                    retention_policy=retention_policy,
                                    tags=tags)
-            return True
         else:
-            return self._write_points(points=points,
-                                      time_precision=time_precision,
-                                      database=database,
-                                      retention_policy=retention_policy,
-                                      tags=tags)
+            self._write_points(points=points,
+                               time_precision=time_precision,
+                               database=database,
+                               retention_policy=retention_policy,
+                               tags=tags)
+        return True
 
     def _batches(self, iterable, size):
         for i in xrange(0, len(iterable), size):
@@ -433,6 +431,76 @@ localhost:8086/databasename', timeout=5, udp_port=159)
             )
 
         return True
+
+    def write_lines(self,
+                    data,
+                    time_precision,
+                    database=None,
+                    retention_policy=None):
+        """Write raw data (using the Line Protocol) to the database.
+
+        :param data: Data to be written to the database
+        :type data: str
+        :param time_precision: Either 's', 'm', 'ms' or 'u', defaults to None
+        :type time_precision: str
+        :param database: the database to write the points to. Defaults to
+            the client's current database
+        :type database: str
+        :param retention_policy: the retention policy for the points. Defaults
+            to None
+        :type retention_policy: str
+        """
+        if time_precision not in ['n', 'u', 'ms', 's', 'm', 'h', None]:
+            raise ValueError(
+                "Invalid time precision is given. "
+                "(use 'n', 'u', 'ms', 's', 'm' or 'h')")
+
+        params = {
+            'db': database or self._database
+        }
+
+        if time_precision is not None:
+            params['precision'] = time_precision
+
+        if retention_policy is not None:
+            params['rp'] = retention_policy
+
+        if self.use_udp:
+            self._send_packet_raw(data)
+        else:
+            self._write_raw(data=data, params=params)
+
+    def _write_raw(self, data, params=None, expected_response_code=204):
+        """Write data to InfluxDB.
+
+        :param data: the data to be written (line protocol)
+        :type data: string
+        :param params: additional parameters for the request, defaults to None
+        :type params: dict
+        :param expected_response_code: the expected response code of the write
+            operation, defaults to 204
+        :type expected_response_code: int
+        """
+
+        headers = self._headers
+        headers['Content-type'] = 'application/octet-stream'
+
+        self.request(
+            url="write",
+            method='POST',
+            params=params,
+            data=data.encode('utf-8'),
+            expected_response_code=expected_response_code,
+            headers=headers
+        )
+
+    def _send_packet_raw(self, data):
+        """Send an UDP packet.
+
+        :param packet: the packet to be sent (line protocol)
+        :type packet: string
+        """
+        self.udp_socket.sendto(data.encode('utf-8'), (self._host, self.udp_port))
 
     def get_list_database(self):
         """Get the list of databases in InfluxDB.
